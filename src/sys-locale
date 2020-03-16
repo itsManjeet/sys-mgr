@@ -1,0 +1,117 @@
+#!/bin/sh
+
+source /usr/lib/rsb/io.sh
+source /usr/lib/rsb/app.sh
+
+SUPPORTED_LOCALES="/etc/locale.gen"
+
+function listLocales {
+    while read locale charset ; do
+        locale="$(echo $locale | sed 's|#||g')"
+        if [[ -n "$locale" && -n $charset ]] ; then
+            if [[ -f /usr/share/i18n/locales/$locale ]] ; then
+                input=$locale
+            else
+                input="$(echo $locale | sed 's/\([^.]*\)[^@]*\(.*\)/\1\2/')"
+            fi
+            echo "$input.$charset"
+        fi
+    done < $SUPPORTED_LOCALES
+}
+
+function infoLocale {
+    locale="$1"
+    infodata="$2"
+
+    if [ -z $locale ] || [ -z $infodata ] ; then
+        err "infoLocale <locale> <infodata>"
+        exit 1
+    fi
+
+    locale_file="/usr/share/i18n/locales/$locale"
+    if [[ ! -f $locale_file ]] ; then
+        err "unsupported locale $locale"
+        return 1
+    fi
+
+    cat "$locale_file" | grep -qF "$2"
+    if [[ $? != 0 ]] ; then
+        err "$infodata info not exist"
+        return 2
+    fi
+
+    cat $locale_file | grep "$2" | awk '{printf $2}' | sed 's|"||g'
+}   
+
+function localeFromName {
+    lang="$1"
+    country="$2"
+
+    langLocale=$(ls /usr/share/i18n/locales | grep -i "${lang:0:2}_")
+
+    count=$(echo "$langLocale" | wc -l)
+    if [[ "$count" -gt 0 ]] ; then
+        countryLocale=$(echo "$langLocale" | grep -i "${country:0:2}")
+        PrintDetail "Locale" "$countryLocale"
+    else
+        err "not found"
+    fi
+}
+
+function PrintLocaleInfo {
+    locale="$1"
+
+    PrintDetail "Language" "$(infoLocale $locale 'lang_name')"
+    PrintDetail "Country" "$(infoLocale $locale 'country_name')"
+}
+
+
+function SetLocale {
+    locale="$1"
+    input=$(echo $locale   | cut -d '.' -f1)
+    charset=$(echo $locale | cut -d '.' -f2)
+
+    CheckRoot
+
+    Process "generating and setting locale $input.$charset"
+    localedef -i "$input" -f "$charset" ${input}.${charset}
+    if [ $? != 0 ] ; then
+        Check 1
+        exit 1
+    fi
+
+    echo "LANG=$input.$charset" > /etc/profile.d/i18n.sh
+    Check $?
+}
+
+function GetLocale {
+    PrintDetail "Locale" $LANG
+}
+
+function PrintHelp {
+    echo "System Locale and Language Managment tool"
+    echo "to manager system locales and charset"
+    echo "Usage:"
+    echo "  list | ls                       to list all avaliable locale"
+    echo "  info <locale-name>              to print locale information"
+    echo "  search | sr <lang> <country>    search locale from language or country"
+    echo "  set <locale>                    set locale"
+    echo "  get                             get current locale"
+}
+
+if [ -z "$1" ] ; then
+    PrintHelp
+    exit 0
+fi
+
+task=$1
+shift
+
+case "$task" in
+    ls|list)    listLocales         ;;
+    info)       PrintLocaleInfo $1  ;;
+    sr|search)  localeFromName $@   ;;
+    set)        SetLocale $1        ;;
+    get)        GetLocale           ;;
+    *)          PrintHelp           ;;
+esac

@@ -1,0 +1,381 @@
+#!/bin/bash
+
+
+source /usr/lib/rsb/io.sh
+source /usr/lib/rsb/app.sh
+
+appConfig=${appConfig:-"/etc/sysconfig/app.conf"}
+dataDir=${dataDir:-"share/usrgrp"}
+
+appDataDir=$(GetVal $appConfig "data_dir")
+
+function listSystemUsers {
+    cat /etc/passwd | cut -d ':' -f1
+}
+
+function listSystemGroups {
+    cat /etc/group | cut -d ':' -f1
+}
+
+function listDefultUsers {
+    cat $dataDir/users | cut -d ' ' -f1
+}
+
+function listDefaultGroups {
+    cat $dataDir/groups | cut -d ' ' -f1
+}
+
+function listAppUsers {
+    for i in $appDataDir/* ; do
+        if [ -f $i/usrgrp ] ; then
+            BYAPP="$i"
+            cat $i/usrgrp | grep "usr" | cut -d ' ' -f2
+        fi
+    done
+}
+
+function listAppGroups {
+    for i in $appDataDir/* ; do
+        if [ -f $i/usrgrp ] ; then
+            BYAPP="$i"
+            cat $i/usrgrp | grep "grp" | cut -d ' ' -f2
+        fi
+    done
+}
+
+# getSysUserInfo `1.username`
+# to get information about System user in /etc/passwd
+# return    `uid`   - (user id)
+#           `gid`   - (group id)
+#           `dir`   - (home dir)
+#           `shell` - (shell)
+function getSysUserInfo {
+    uid=$(cat /etc/passwd | grep "$1" | cut -d ':' -f3)
+    gid=$(cat /etc/passwd | grep "$1" | cut -d ':' -f4)
+    dir=$(cat /etc/passwd | grep "$1" | cut -d ':' -f6)
+    shell=$(cat /etc/passwd | grep "$1" | cut -d ':' -f7)
+}
+
+
+# getSysGrpInfo `1.groupname`
+# to get information about system group in /etc/group
+# return    `gid`       -   (group id)
+#           `members`   -   (members)
+function getSysGrpInfo {
+    gid=$(cat /etc/group | grep "$1" | cut -d ':' -f3)
+    members=$(cat /etc/group | grep "$1" | cut -d ':' -f4)
+}
+
+# getDefUserInfo `1.username`
+# to get information about default user that are create by vendor specified in $dataDir/users
+# return    `uid`   - (user id)
+#           `gid`   - (group id)
+#           `dir`   - (home dir)
+#           `shell` - (shell)
+function getDefUserInfo {
+    uid=$(cat $dataDir/users | grep "$1" | cut -d ' ' -f1)
+    gid=$(cat $dataDir/users | grep "$1" | cut -d ' ' -f2)
+    shell=$(cat $dataDir/users | grep "$1" | cut -d ' ' -f4)
+    dir=$(cat $dataDir/users | grep "$1" | cut -d ' ' -f5)
+}
+
+# getDefGrpInfo `1.groupname`
+# to get information about default groups that are create by vendor specified in $dataDir/groups
+# return    `gid`       -   (group id)
+#           `members`   -   (members)
+function getDefGrpInfo {
+    gid=$(cat $dataDir/groups | grep "$1" | cut -d ' ' -f2)
+    members=$(cat $dataDir/groups | grep "$1" | cut -d ' ' -f3)
+}
+
+
+# getAppUserInfo `1.username`
+# to get information about users need by user application 
+# return    `uid`   - (user id)
+#           `gid`   - (group id)
+#           `dir`   - (home dir)
+#           `shell` - (shell)
+function getAppUserInfo {
+    for i in $appDataDir/* ; do
+        if [ -f $i/usrgrp ] ; then
+            if [[ $(cat $i/usrgrp | grep "usr" | cut -d ' ' -f2) == "$1" ]] ; then
+                BYAPP=$(cat $i/info | grep "name:" | awk '{print $2}')
+                uid=$(cat $i/usrgrp | grep "usr" | cut -d ' ' -f3)
+                gid=$(cat $i/usrgrp | grep "usr" | cut -d ' ' -f4)
+                shell=$(cat $i/usrgrp | grep "usr" | cut -d ' ' -f6)
+                dir=$(cat $i/usrgrp | grep "usr" | cut -d ' ' -f7)
+            fi
+        fi
+    done
+}
+
+# getAppGrpInfo `1.group`
+# to get information about group need by user application 
+# return    `gid`       -   (group id)
+#           `members`   -   (members)
+function getAppGrpInfo {
+    for i in $appDataDir/* ; do
+        if [ -f $i/usrgrp ] ; then
+            if [[ $(cat $i/usrgrp | grep "grp" | cut -d ' ' -f2) == "$1" ]] ; then
+                BYAPP=$(cat $i/info | grep "name:" | awk '{print $2}')
+                gid=$(cat $i/usrgrp | grep "grp" | cut -d ' ' -f3)
+                members=$(cat $i/usrgrp | grep "grp" | cut -d ' ' -f4)
+            fi
+        fi
+    done
+}
+
+
+
+
+function checkUserExistence {
+
+    for i in $(listAppUsers) $(listDefultUsers) ; do
+        found=1
+        for j in $(listSystemUsers) ; do
+            if [ "$i" == "$j" ] ; then
+                found=0
+                break
+            fi
+        done
+
+        if [ "$found" != "0" ] ; then
+            MissingUsers="$MissingUsers $i"
+        fi
+
+    done
+
+}
+
+function checkGroupExistence {
+
+    for i in $(listAppGroups) $(listDefaultGroups) ; do
+        found=1
+        for j in $(listSystemGroups) ; do
+            if [ "$i" == "$j" ] ; then
+                found=0
+                break
+            fi
+        done
+
+        if [ "$found" != "0" ] ; then
+            MissingGroups="$MissingGroups $i"
+        fi
+
+    done
+
+}
+
+# infoUser `1.user`
+# To Get Information about user of any type
+# return    `uid`   - (user id)
+#           `gid`   - (group id)
+#           `dir`   - (home dir)
+#           `shell` - (shell)
+function infoUser {
+    if IsInList $1 "$(listSystemUsers)" ; then
+        status="0"
+        
+        getSysUserInfo $1
+    else
+        status="1"
+        if IsInList $1 "$(listDefultUsers)" ; then
+            neededby="system"
+            getDefUserInfo $1
+        elif IsInList $1 "$(listAppUsers)" ; then
+            getAppUserInfo $1
+            neededby="$BYAPP"
+        else
+            status="-1"
+        fi
+    fi
+}
+
+
+# infoGroup `1.group`
+# To Get Information about user of any type
+# return    `gid`       -   (group id)
+#           `members`   -   (members)
+function infoGroup {
+    if IsInList $1 "$(listSystemGroups)" ; then
+        status="0"
+        
+        getSysGrpInfo $1
+    else
+        status="1"
+        if IsInList $1 "$(listDefaultGroups)" ; then
+            neededby="system"
+            getDefGrpInfo $1
+        elif IsInList $1 "$(listAppGroups)" ; then
+            getAppGrpInfo $1
+            neededby="$BYAPP"
+        else
+            status="-1"
+        fi
+    fi
+}
+
+
+function PrintUserInfo {
+    infoUser $1
+    if [[ "$status" == "0" ]] ; then
+        PrintDetail "Status" "Ok" $GREEN
+
+    elif [[ "$status" == "1" ]] ; then
+        PrintDetail "Status" "not exit" $RED
+        PrintDetail "Needed by" "$neededby"
+    else
+        err "unable to get information about $1"
+        exit 0
+    fi
+
+    PrintDetail "User Name" "$1"
+    PrintDetail "User ID" "$uid"
+    PrintDetail "Group ID" "$gid"
+    PrintDetail "Home Dir" "$dir"
+    PrintDetail "Default Shell" "$shell"
+}
+
+
+function PrintGroupInfo {
+    infoGroup $1
+    if [[ "$status" == "0" ]] ; then
+        PrintDetail "Status" "Ok" $GREEN
+
+    elif [[ "$status" == "1" ]] ; then
+        PrintDetail "Status" "not exit" $RED
+        PrintDetail "Needed by" "$neededby"
+    else
+        err "unable to get information about $1"
+        exit 0
+    fi
+
+    PrintDetail "Group Name" "$1"
+    PrintDetail "Group ID" "$gid"
+    PrintDetail "Members" "$members"
+}
+
+function IsInList {
+    for i in $2 ; do
+        if [ "$1" == "$i" ] ; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+function Checkup {
+    rtn=0
+    Process "Checking System Users"
+    checkUserExistence
+    if [ -n "$MissingUsers" ] ; then
+        Check 1
+        err "Missing user(s) - $(echo $MissingUsers | tr ' ' ',')"
+        rtn=1
+    else
+        Check 0
+    fi
+
+    Process "Checking System Groups"
+    checkGroupExistence
+    if [ -n "$MissingGroups" ] ; then
+        Check 1
+        err "Missing group(s) - $(echo $MissingGroups | tr ' ' ',')"
+        rtn=1
+    else
+        Check 0
+    fi
+
+    return $rtn
+}
+
+function Fix {
+    CheckRoot
+
+    Checkup
+    if [ -n "$MissingGroups" ] ; then
+        for i in $MissingGroups ; do
+            process "Adding group '$i'"
+            grpToAdd="$i"
+            infoGroup $i
+            if [[ "$status" == "-1" ]] ; then
+                err "no information about $i"
+                continue
+            fi
+            groupadd $grpToAdd -g $gid
+        done
+    else
+        success "no missing user"
+        return 0
+    fi
+    if [ -n "$MissingUsers" ] ; then
+        for i in $MissingUsers ; do
+            process "Adding user '$i'"
+            usrToAdd="$i"
+            infoUser $i
+            if [[ "$status" == "-1" ]] ; then
+                err "no information about $i"
+                continue
+            fi
+            useradd $usrToAdd -g $gid -u $uid -c $neededby -s $shell -d $dir
+        done
+    else
+        success "no missing user"
+        return 0
+    fi
+}
+
+function PrintHelp {
+    echo "System User Group Managment tool"
+    echo "to manage sys users and groups"
+    echo "Usage:"
+    echo "  checkup                                         to perform checkup of users and groups"
+    echo "  detail | info [group|user] <name>               to get information about user or group"
+    echo "  list   | ls   [group|user] <name>               to get list of system users"
+    echo "  fix                                             to perform automatic fixes"
+}
+
+if [ -z "$1" ] ; then
+    PrintHelp
+    exit 0
+fi
+
+task=$1
+shift
+
+case "$task" in
+    checkup)
+        Checkup
+        ;;
+
+    detail|info)
+        case "$1" in
+            user | usr)
+                PrintUserInfo $2
+                ;;
+            group|grp)
+                PrintGroupInfo $2
+                ;;
+        esac
+        ;;
+
+    list|ls)
+        case "$1" in
+            user | usr)
+                listSystemUsers $2
+                ;;
+            group|grp)
+                listSystemGroups $2
+                ;;
+        esac
+        ;;
+
+    fix)
+        Fix
+        ;;
+    
+    *)
+        err "invalid task $task"
+        PrintHelp
+        ;;
+esac

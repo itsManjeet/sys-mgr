@@ -1,0 +1,5 @@
+root 0 0 'root' /bin/bash /root
+bin 1 1 'bin' /bin/false /dev/null
+daemon 6 6 'daemonUser' /bin/false /dev/null
+messagebus 18 18 'dbusDaemonUser' /bin/false /run/dbus
+nobody 99 99 'unprivilegedUser' /bin/false /dev/null
