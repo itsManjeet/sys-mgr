@@ -5,7 +5,7 @@ source /usr/lib/rsb/io.sh
 source /usr/lib/rsb/app.sh
 
 appConfig=${appConfig:-"/etc/sysconfig/app.conf"}
-dataDir=${dataDir:-"share/usrgrp"}
+dataDir=${dataDir:-"/usr/share/sys-mgr/usrgrp"}
 
 appDataDir=$(GetVal $appConfig "data_dir")
 

@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "config": "cpp",
+        "app": "cpp",
+        "fs": "cpp",
+        "ui": "cpp"
+    }
+}
