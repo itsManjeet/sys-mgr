@@ -1,0 +1,150 @@
+#!/bin/sh
+#
+# sys-debug: releax os System Log generator tool
+# Author:    Manjeet Singh <itsmanjeet@releax.in>
+# License:   GPL3
+#
+
+VERSION="0.5.1"
+RELEASE="beta"
+
+source /lib/rsb/io.sh
+source /lib/rsb/app.sh
+
+
+TMPLOGDIR="/tmp/.genlog"
+LOG="complete"
+set -e
+
+function checkError {
+    if [[ $1 != 0 ]] ; then
+        err "$2"
+        exit $1
+    fi
+}
+
+function genLogKernel {
+    process "generating kernel logs"
+    dmesg > $TMPLOGDIR/kernel.log
+    checkError $? "error while generating kernel log"
+}
+
+function genLogXorg {
+    process "generating xorg logs"
+    cp /var/log/Xorg.0.log $TMPLOGDIR/xorg.log
+    process "getting lightdm logs"
+    cp /var/log/lightdm/*.log $TMPLOGDIR/
+}
+
+function genAppLogs {
+    process "generating applog"
+    ls /var/lib/app/ > $TMPLOGDIR/installedApps.txt
+
+    process "check apps health"
+    sys-app check all | tee $TMPLOGDIR/appHealth.log
+
+}
+
+function genBrokenBinLogs {
+    process "checking broken binaries"
+    for p in $(echo $PATH | tr ':' '\n') ; do
+        for b in $p/* ; do
+            sys-app check broken $b
+        done
+    done | tee $TMPLOGDIR/brokenApps.log
+}
+
+function genBrokenLibrariesLogs {
+    process "checking broken libraries"
+    for l in $(find /lib/ /apps/lib/ /usr/lib32/ /usr/libexec/ -type f -name "*.so.*") ; do
+            sys-app check broken $b
+    done | tee $TMPLOGDIR/brokenLibs.log
+}
+
+
+function genLog {
+    case $LOG in
+        "complete")
+            genLogKernel
+            genLogXorg
+            genAppLogs
+            ;;
+
+        "kernel")   genLogKernel            ;;
+        "xorg")     genLogXorg              ;;
+        "apps")     genAppLogs              ;;
+        "binary")   genBrokenBinLogs        ;;
+        "library")  genBrokenLibrariesLogs  ;;
+    esac
+
+    process "packing log files"
+
+    logfile="log-$(date +'%F-%R').tar.xz"
+    tar -zcaf "$PWD/$logfile" -P $TMPLOGDIR/*
+
+    success "log file generated $PWD/$logfile"
+
+    rm -rf $TMPLOGDIR
+}
+
+function printHelp {
+    echo "sys-log $VERSION ($RELEASE)"
+    echo "releax system log generator tool"
+    echo "Usage: sys-log <task> --args"
+    echo "Tasks:"
+    echo "      gen-log [-c|-x|-k|-b|-l]"
+
+    exit 0
+}
+
+function main {
+
+    task="$1"
+    [[ -z "$1" ]] && printHelp
+
+    shift
+
+    for opt in $@ ; do
+        case $opt in
+            --complete|-c)
+                LOG="complete"
+                ;;
+
+            --xorg|-x)
+                LOG="xorg"
+                ;;
+
+            --kernel|-k)
+                LOG="kernel"
+                ;;
+
+            --binary|-b)
+                LOG="binary"
+                ;;
+            --library|-l)
+                LOG="library"
+                ;;
+
+            --*|*-)
+                warn "unknown option $opt"
+                ;;
+            *)
+                args="$args $opt"
+                ;;
+        esac
+
+    done
+
+    case "$task" in
+        gen-log)
+            install -d $TMPLOGDIR
+            genLog
+            ;;
+        *)
+            err "unknown task $task"
+            printHelp
+            ;;
+    esac  
+}
+
+main $@
